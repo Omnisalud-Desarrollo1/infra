@@ -1,0 +1,36 @@
+# ============================================================
+# TRAEFIK STATIC CONFIGURATION (documentacion)
+# ============================================================
+# La configuracion real se aplica via Docker labels en docker-compose.yml.
+#
+# DOMINIO PRODUCCION: portalcorporativo.omnisalud.co
+#
+# ROUTING:
+#   /api/v1/*  -> Portal-Corporativo backend  (FastAPI, :8000)
+#   /app1/*    -> Desarrollo_Asistencial       (Flask,   :5000)  [strip /app1]
+#   /app2/*    -> Desarrollo_Comercial         (Flask,   :8000)  [strip /app2]
+#   /*         -> Portal-Corporativo frontend  (React,   :80)
+
+entryPoints:
+  web:
+    address: ":80"
+  websecure:
+    address: ":443"
+
+certificatesResolvers:
+  letsencrypt:
+    acme:
+      email: ${LETSENCRYPT_EMAIL:-admin@omnisalud.co}
+      storage: /letsencrypt/acme.json
+      # Staging CA (quitar para produccion):
+      caServer: ${LETSENCRYPT_CA:-https://acme-staging-v02.api.letsencrypt.org/directory}
+      httpChallenge:
+        entryPoint: web
+
+providers:
+  docker:
+    endpoint: "unix:///var/run/docker.sock"
+    exposedByDefault: false
+
+api:
+  insecure: true

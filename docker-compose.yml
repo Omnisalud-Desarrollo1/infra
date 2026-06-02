@@ -1,0 +1,228 @@
+# ============================================================
+# ECOSISTEMA COMPLETO - docker-compose.yml
+# ============================================================
+# Orquestra todos los servicios del ecosistema Omnisalud Digital:
+#   - Traefik reverse proxy (path-based routing + HTTPS)
+#   - Portal-Corporativo-Omnisalud (main SSO app)
+#   - Desarrollo_Asistencial (app1)
+#   - Desarrollo_Comercial (app2)
+#   - Ngrok (testing)
+#
+# USO:
+#   cp .env.example .env        # editar credenciales
+#   docker compose up -d        # stack completo
+#   docker compose --profile ngrok up -d  # con ngrok
+#
+# DOMINIO PRODUCCION: portalcorporativo.omnisalud.co
+# ============================================================
+
+services:
+  # ========================================
+  # TRAEFIK - Reverse Proxy
+  # ========================================
+  traefik:
+    image: traefik:latest
+    container_name: traefik
+    restart: unless-stopped
+    command:
+      - "--api.insecure=true"
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--accesslog=true"
+      - "--accesslog.filepath=/dev/stdout"
+      # Entrypoints
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.websecure.address=:443"
+      # Let's Encrypt (staging para pruebas; quitar caServer para prod)
+      - "--certificatesresolvers.letsencrypt.acme.email=${LETSENCRYPT_EMAIL:-admin@omnisalud.co}"
+      - "--certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json"
+      - "--certificatesresolvers.letsencrypt.acme.caServer=${LETSENCRYPT_CA:-https://acme-staging-v02.api.letsencrypt.org/directory}"
+      - "--certificatesresolvers.letsencrypt.acme.httpchallenge=true"
+      - "--certificatesresolvers.letsencrypt.acme.httpchallenge.entrypoint=web"
+    ports:
+      - "80:80"
+      - "443:443"
+      - "8080:8080"
+    volumes:
+      - "/var/run/docker.sock:/var/run/docker.sock:ro"
+      - "./traefik/letsencrypt:/letsencrypt"
+    networks:
+      - omni_net
+
+  # ========================================
+  # PORTAL-CORPORATIVO - Backend (FastAPI)
+  # ========================================
+  portal-auth:
+    build:
+      context: ../Portal-Corporativo-Omnisalud/auth-server
+      dockerfile: Dockerfile
+    container_name: portal-auth
+    restart: unless-stopped
+    environment:
+      APP_ENV: ${APP_ENV:-development}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY}
+      JWT_ALGORITHM: HS256
+      JWT_ACCESS_TOKEN_EXPIRE_MINUTES: ${JWT_ACCESS_TOKEN_EXPIRE_MINUTES:-7200}
+      JWT_REFRESH_TOKEN_EXPIRE_MINUTES: ${JWT_REFRESH_TOKEN_EXPIRE_MINUTES:-21600}
+      MYSQL_HOST: ${MYSQL_HOST}
+      MYSQL_PORT: ${MYSQL_PORT:-3306}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      MYSQL_DATABASE: omn_core_global
+      COOKIE_DOMAIN: ${COOKIE_DOMAIN:-}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      COOKIE_SAMESITE: lax
+      COOKIE_ACCESS_TOKEN_NAME: sso_access_token
+      COOKIE_REFRESH_TOKEN_NAME: sso_refresh_token
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost}
+      FRONTEND_URL: ${FRONTEND_URL:-}
+      APP_PORT: 8000
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.portal-auth.rule=PathPrefix(`/api/v1`)"
+      - "traefik.http.routers.portal-auth.entrypoints=web"
+      - "traefik.http.services.portal-auth.loadbalancer.server.port=8000"
+    networks:
+      - omni_net
+
+  # ========================================
+  # PORTAL-CORPORATIVO - Frontend (React/Vite)
+  # ========================================
+  portal-frontend:
+    build:
+      context: ../Portal-Corporativo-Omnisalud/client-app/frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_AUTH_SERVER_URL: ""
+    container_name: portal-frontend
+    restart: unless-stopped
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.portal-frontend.rule=PathPrefix(`/`)"
+      - "traefik.http.routers.portal-frontend.entrypoints=web"
+      - "traefik.http.routers.portal-frontend.priority=1"
+      - "traefik.http.services.portal-frontend.loadbalancer.server.port=80"
+    networks:
+      - omni_net
+
+  # ========================================
+  # DESARROLLO ASISTENCIAL (app1)
+  # ========================================
+  app1-asistencial:
+    build:
+      context: ../Desarrollo_Asistencial_Version_1.0
+      dockerfile: Dockerfile
+    container_name: app1-asistencial
+    restart: unless-stopped
+    environment:
+      FLASK_ENV: production
+      SECRET_KEY: ${APP1_SECRET_KEY:-change-me}
+      SSO_ENABLED: "true"
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY}
+      JWT_ALGORITHM: HS256
+      COOKIE_ACCESS_TOKEN_NAME: sso_access_token
+      MAIN_APP_URL: /
+      APP_PATH_PREFIX: /app1
+      DB_HOST: ${MYSQL_HOST}
+      DB_PORT: ${MYSQL_PORT:-3306}
+      DB_NAME: omn_asis_gestion_turnos
+      DB_USER: ${MYSQL_USER}
+      DB_PASSWORD: ${MYSQL_PASSWORD}
+      GLOBAL_AUTH_DB_HOST: ${MYSQL_HOST}
+      GLOBAL_AUTH_DB_PORT: ${MYSQL_PORT:-3306}
+      GLOBAL_AUTH_DB_NAME: omn_core_global
+      GLOBAL_AUTH_DB_USER: ${MYSQL_USER}
+      GLOBAL_AUTH_DB_PASSWORD: ${MYSQL_PASSWORD}
+      APP_PORT: 5000
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.app1.rule=PathPrefix(`/app1`)"
+      - "traefik.http.routers.app1.entrypoints=web"
+      - "traefik.http.middlewares.app1-strip.stripprefix.prefixes=/app1"
+      - "traefik.http.routers.app1.middlewares=app1-strip"
+      - "traefik.http.services.app1.loadbalancer.server.port=5000"
+    networks:
+      - omni_net
+
+  # ========================================
+  # DESARROLLO COMERCIAL (app2)
+  # ========================================
+  app2-comercial:
+    build:
+      context: ../Desarrollo_Comercial
+      dockerfile: Dockerfile
+    container_name: app2-comercial
+    restart: unless-stopped
+    environment:
+      FLASK_ENV: production
+      SECRET_KEY: ${APP2_SECRET_KEY:-change-me}
+      SSO_ENABLED: "true"
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY}
+      JWT_ALGORITHM: HS256
+      COOKIE_ACCESS_TOKEN_NAME: sso_access_token
+      MAIN_APP_URL: /
+      APP_PATH_PREFIX: /app2
+      DB_HOST: ${MYSQL_HOST}
+      DB_PORT: ${MYSQL_PORT:-3306}
+      DB_DATABASE: ${APP2_DB_NAME:-comercialDB}
+      DB_USER: ${APP2_DB_USER:-${MYSQL_USER}}
+      DB_PASSWORD: ${APP2_DB_PASSWORD:-${MYSQL_PASSWORD}}
+      APP_PORT: 8000
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.app2.rule=PathPrefix(`/app2`)"
+      - "traefik.http.routers.app2.entrypoints=web"
+      - "traefik.http.middlewares.app2-strip.stripprefix.prefixes=/app2"
+      - "traefik.http.routers.app2.middlewares=app2-strip"
+      - "traefik.http.services.app2.loadbalancer.server.port=8000"
+    networks:
+      - omni_net
+
+  # ========================================
+  # NGROK - testing (perfil opcional)
+  # ========================================
+  ngrok:
+    image: ngrok/ngrok:latest
+    container_name: ngrok
+    restart: unless-stopped
+    environment:
+      NGROK_AUTHTOKEN: ${NGROK_AUTHTOKEN}
+    command:
+      - "http"
+      - "http://traefik:80"
+    ports:
+      - "4040:4040"
+    networks:
+      - omni_net
+    depends_on:
+      - traefik
+    profiles:
+      - ngrok
+
+  # ========================================
+  # PLACEHOLDER: App futura (app3)
+  # ========================================
+  # app3-futura:
+  #   build:
+  #     context: ../app3-futura
+  #     dockerfile: Dockerfile
+  #   container_name: app3-futura
+  #   restart: unless-stopped
+  #   environment:
+  #     SSO_ENABLED: "true"
+  #     JWT_SECRET_KEY: ${JWT_SECRET_KEY}
+  #     MAIN_APP_URL: /
+  #     APP_PATH_PREFIX: /app3
+  #   labels:
+  #     - "traefik.enable=true"
+  #     - "traefik.http.routers.app3.rule=PathPrefix(`/app3`)"
+  #     - "traefik.http.routers.app3.entrypoints=web"
+  #     - "traefik.http.middlewares.app3-strip.stripprefix.prefixes=/app3"
+  #     - "traefik.http.routers.app3.middlewares=app3-strip"
+  #     - "traefik.http.services.app3.loadbalancer.server.port=3000"
+  #   networks:
+  #     - omni_net
+
+networks:
+  omni_net:
+    driver: bridge
