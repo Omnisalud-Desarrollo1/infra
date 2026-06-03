@@ -1,2 +1,4 @@
 acme.json
 certs/
+
+.env
