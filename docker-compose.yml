@@ -179,49 +179,52 @@ services:
       - omni_net
 
   # ========================================
-  # NGROK - testing (perfil opcional)
+  # CONTROL DE COSTOS (app3)
   # ========================================
-  ngrok:
-    image: ngrok/ngrok:latest
-    container_name: ngrok
+  app3-costos:
+    build:
+      context: ../Negociaciones_control_costo_v1
+      dockerfile: Dockerfile
+      args:
+        VITE_SSO_ENABLED: "true"
+        VITE_APP_PATH_PREFIX: /app3
+        VITE_API_BASE_URL: /app3
+    container_name: app3-costos
     restart: unless-stopped
     environment:
-      NGROK_AUTHTOKEN: ${NGROK_AUTHTOKEN}
-    command:
-      - "http"
-      - "http://traefik:80"
-    ports:
-      - "4040:4040"
+      PORT: 3001
+      SSO_ENABLED: "true"
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY}
+      JWT_ALGORITHM: HS256
+      COOKIE_ACCESS_TOKEN_NAME: sso_access_token
+      MAIN_APP_URL: /
+      APP_PATH_PREFIX: /app3
+      DB_HOST: ${MYSQL_HOST}
+      DB_PORT: ${MYSQL_PORT:-3306}
+      DB_USER: ${MYSQL_USER}
+      DB_PASSWORD: ${MYSQL_PASSWORD}
+      GLOBAL_AUTH_DB_HOST: ${MYSQL_HOST}
+      GLOBAL_AUTH_DB_NAME: omn_core_global
+      GLOBAL_AUTH_DB_USER: ${MYSQL_USER}
+      GLOBAL_AUTH_DB_PASSWORD: ${MYSQL_PASSWORD}
+      DB_APP_SCHEMA: omn_ng_control_costos_rn
+      DB_STAGING_SCHEMA: omn_core_global
+      DB_CITY_SCHEMA: omn_core_global
+      DB_SERVICE_SCHEMA: omn_core_global
+      DB_SERVICE_NAME_SCHEMA: omn_core_global
+      CORS_ORIGINS: ""
+      DB_SSL_CA: ""
+      DB_SSL_CERT: ""
+      DB_SSL_KEY: ""
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.app3.rule=PathPrefix(`/app3`)"
+      - "traefik.http.routers.app3.entrypoints=web"
+      - "traefik.http.middlewares.app3-strip.stripprefix.prefixes=/app3"
+      - "traefik.http.routers.app3.middlewares=app3-strip"
+      - "traefik.http.services.app3.loadbalancer.server.port=3001"
     networks:
       - omni_net
-    depends_on:
-      - traefik
-    profiles:
-      - ngrok
-
-  # ========================================
-  # PLACEHOLDER: App futura (app3)
-  # ========================================
-  # app3-futura:
-  #   build:
-  #     context: ../app3-futura
-  #     dockerfile: Dockerfile
-  #   container_name: app3-futura
-  #   restart: unless-stopped
-  #   environment:
-  #     SSO_ENABLED: "true"
-  #     JWT_SECRET_KEY: ${JWT_SECRET_KEY}
-  #     MAIN_APP_URL: /
-  #     APP_PATH_PREFIX: /app3
-  #   labels:
-  #     - "traefik.enable=true"
-  #     - "traefik.http.routers.app3.rule=PathPrefix(`/app3`)"
-  #     - "traefik.http.routers.app3.entrypoints=web"
-  #     - "traefik.http.middlewares.app3-strip.stripprefix.prefixes=/app3"
-  #     - "traefik.http.routers.app3.middlewares=app3-strip"
-  #     - "traefik.http.services.app3.loadbalancer.server.port=3000"
-  #   networks:
-  #     - omni_net
 
 networks:
   omni_net:
