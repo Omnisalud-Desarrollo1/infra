@@ -217,7 +217,7 @@ docker compose --profile ngrok up -d      # with public tunnel
 | Framework | Flask 3.1 + Flask-Login + React sub-app (cotizador) |
 | Auth Libs | `python-jose[cryptography]` (JWT) |
 | Database | `comercialdb` (business) |
-| Container | Multi-stage: Node build → `python:3.11-slim`, Gunicorn on :8000 |
+| Container | Multi-stage: Node build → `python:3.11-slim`, uvicorn on :8000 |
 
 ### SSO Implementation
 - `app/auth/sso.py` — `validate_sso_token()`, `load_user_from_sso_payload()`, `get_sso_result()`, `external_login_url()`
@@ -374,8 +374,6 @@ docker compose --profile ngrok up -d      # with public tunnel
 | Monolithic component `control-costos.jsx` (~2500 lines) | High |
 | `APP_PASSWORD` fallback in auth controller | Medium |
 | In-memory caches (no Redis) | Medium |
-| `NVIDIA_API_KEY` exposed in `.env` | Low |
-| No role-based access within app (all users get full access) | Low |
 
 ---
 
@@ -413,7 +411,6 @@ docker compose --profile ngrok up -d      # with public tunnel
 1. **Hash app2 passwords** — `comercialdb.usuarios.contrasena` is plaintext. Migrate to bcrypt matching app1/app3.
 2. **Production Let's Encrypt** — Remove `caServer` from Traefik, set `COOKIE_SECURE=true`
 3. **Rotate JWT secret** — `una-clave-secreta-muy-dificil-de-adivinar` is shared everywhere
-4. **Add app3 card to portal dashboard** — `Portal-Corporativo-Omnisalud/client-app/frontend/src/modules/home/pages/HomePage.jsx`
 
 ### Important
 5. **Implement refresh token in app3** — Currently redirects to login on expiry; app2 already handles this
@@ -441,10 +438,6 @@ docker compose up -d --build
 
 # Single app rebuild
 docker compose up -d --build app3-costos
-
-# With public tunnel (testing)
-docker compose --profile ngrok up -d
-curl -s http://localhost:4040/api/tunnels | grep -o 'https://[^"]*'
 
 # View logs
 docker compose logs -f app3-costos
