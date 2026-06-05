@@ -6,6 +6,7 @@
 #   - Portal-Corporativo-Omnisalud (main SSO app)
 #   - Desarrollo_Asistencial (app1)
 #   - Desarrollo_Comercial (app2)
+#   - Negociaciones_control_costo (app3)
 #   - Ngrok (testing)
 #
 # USO:
@@ -16,23 +17,78 @@
 # DOMINIO PRODUCCION: portalcorporativo.omnisalud.co
 # ============================================================
 
+x-mysql-env: &mysql-env
+  MYSQL_HOST: ${MYSQL_HOST}
+  MYSQL_PORT: ${MYSQL_PORT:-3306}
+  MYSQL_USER: ${MYSQL_USER}
+  MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+
+x-jwt-common: &jwt-common
+  JWT_SECRET_KEY: ${JWT_SECRET_KEY}
+  JWT_ALGORITHM: ${JWT_ALGORITHM:-HS256}
+  COOKIE_ACCESS_TOKEN_NAME: sso_access_token
+
+x-app-env: &app-env
+  JWT_SECRET_KEY: ${JWT_SECRET_KEY}
+  JWT_ALGORITHM: ${JWT_ALGORITHM:-HS256}
+  COOKIE_ACCESS_TOKEN_NAME: sso_access_token
+  MYSQL_HOST: ${MYSQL_HOST}
+  MYSQL_PORT: ${MYSQL_PORT:-3306}
+  MYSQL_USER: ${MYSQL_USER}
+  MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+x-resources-small: &resources-small
+  limits:
+    cpus: '0.5'
+    memory: 256M
+  reservations:
+    cpus: '0.1'
+    memory: 64M
+
+x-resources-medium: &resources-medium
+  limits:
+    cpus: '1.0'
+    memory: 512M
+  reservations:
+    cpus: '0.25'
+    memory: 128M
+
 services:
   # ========================================
   # TRAEFIK - Reverse Proxy
   # ========================================
   traefik:
-    image: traefik:latest
+    image: traefik
     container_name: traefik
     restart: unless-stopped
+    logging: *logging
+    deploy:
+      resources: *resources-small
     command:
-      - "--api.insecure=true"
+      - "--api.dashboard=true"
+      - "--ping=true"
       - "--providers.docker=true"
       - "--providers.docker.exposedbydefault=false"
+      - "--providers.file.filename=/etc/traefik/dynamic.yml"
       - "--accesslog=true"
       - "--accesslog.filepath=/dev/stdout"
+      - "--accesslog.format=json"
       # Entrypoints
       - "--entrypoints.web.address=:80"
       - "--entrypoints.websecure.address=:443"
+      # Timeouts
+      - "--entrypoints.web.transport.respondingTimeouts.idleTimeout=180"
+      - "--entrypoints.web.transport.respondingTimeouts.readTimeout=60"
+      - "--entrypoints.web.transport.respondingTimeouts.writeTimeout=60"
+      - "--entrypoints.websecure.transport.respondingTimeouts.idleTimeout=180"
+      - "--entrypoints.websecure.transport.respondingTimeouts.readTimeout=60"
+      - "--entrypoints.websecure.transport.respondingTimeouts.writeTimeout=60"
       # Let's Encrypt (staging para pruebas; quitar caServer para prod)
       - "--certificatesresolvers.letsencrypt.acme.email=${LETSENCRYPT_EMAIL:-admin@omnisalud.co}"
       - "--certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json"
@@ -42,10 +98,17 @@ services:
     ports:
       - "80:80"
       - "443:443"
-      - "8080:8080"
+      - "127.0.0.1:8080:8080"
     volumes:
       - "/var/run/docker.sock:/var/run/docker.sock:ro"
       - "./traefik/letsencrypt:/letsencrypt"
+      - "./traefik/dynamic.yml:/etc/traefik/dynamic.yml:ro"
+    healthcheck:
+      test: ["CMD", "traefik", "healthcheck", "--ping"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
     networks:
       - omni_net
 
@@ -58,21 +121,18 @@ services:
       dockerfile: Dockerfile
     container_name: portal-auth
     restart: unless-stopped
+    logging: *logging
+    deploy:
+      resources: *resources-medium
     environment:
       APP_ENV: ${APP_ENV:-development}
-      JWT_SECRET_KEY: ${JWT_SECRET_KEY}
-      JWT_ALGORITHM: HS256
+      <<: *app-env
       JWT_ACCESS_TOKEN_EXPIRE_MINUTES: ${JWT_ACCESS_TOKEN_EXPIRE_MINUTES:-7200}
       JWT_REFRESH_TOKEN_EXPIRE_MINUTES: ${JWT_REFRESH_TOKEN_EXPIRE_MINUTES:-21600}
-      MYSQL_HOST: ${MYSQL_HOST}
-      MYSQL_PORT: ${MYSQL_PORT:-3306}
-      MYSQL_USER: ${MYSQL_USER}
-      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
       MYSQL_DATABASE: omn_core_global
       COOKIE_DOMAIN: ${COOKIE_DOMAIN:-}
       COOKIE_SECURE: ${COOKIE_SECURE:-false}
       COOKIE_SAMESITE: lax
-      COOKIE_ACCESS_TOKEN_NAME: sso_access_token
       COOKIE_REFRESH_TOKEN_NAME: sso_refresh_token
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost}
       FRONTEND_URL: ${FRONTEND_URL:-}
@@ -82,6 +142,10 @@ services:
       - "traefik.http.routers.portal-auth.rule=PathPrefix(`/api/v1`)"
       - "traefik.http.routers.portal-auth.entrypoints=web"
       - "traefik.http.services.portal-auth.loadbalancer.server.port=8000"
+      - "traefik.http.routers.portal-auth.middlewares=rate-limit-general@file,compress@file"
+    depends_on:
+      traefik:
+        condition: service_started
     networks:
       - omni_net
 
@@ -96,12 +160,19 @@ services:
         VITE_AUTH_SERVER_URL: ""
     container_name: portal-frontend
     restart: unless-stopped
+    logging: *logging
+    deploy:
+      resources: *resources-small
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.portal-frontend.rule=PathPrefix(`/`)"
       - "traefik.http.routers.portal-frontend.entrypoints=web"
       - "traefik.http.routers.portal-frontend.priority=1"
       - "traefik.http.services.portal-frontend.loadbalancer.server.port=80"
+      - "traefik.http.routers.portal-frontend.middlewares=compress@file"
+    depends_on:
+      portal-auth:
+        condition: service_started
     networks:
       - omni_net
 
@@ -114,13 +185,14 @@ services:
       dockerfile: Dockerfile
     container_name: app1-asistencial
     restart: unless-stopped
+    logging: *logging
+    deploy:
+      resources: *resources-medium
     environment:
       FLASK_ENV: production
       SECRET_KEY: ${APP1_SECRET_KEY:-change-me}
       SSO_ENABLED: "true"
-      JWT_SECRET_KEY: ${JWT_SECRET_KEY}
-      JWT_ALGORITHM: HS256
-      COOKIE_ACCESS_TOKEN_NAME: sso_access_token
+      <<: *jwt-common
       MAIN_APP_URL: /
       APP_PATH_PREFIX: /app1
       DB_HOST: ${MYSQL_HOST}
@@ -139,8 +211,11 @@ services:
       - "traefik.http.routers.app1.rule=PathPrefix(`/app1`)"
       - "traefik.http.routers.app1.entrypoints=web"
       - "traefik.http.middlewares.app1-strip.stripprefix.prefixes=/app1"
-      - "traefik.http.routers.app1.middlewares=app1-strip"
+      - "traefik.http.routers.app1.middlewares=app1-strip,compress@file"
       - "traefik.http.services.app1.loadbalancer.server.port=5000"
+    depends_on:
+      traefik:
+        condition: service_started
     networks:
       - omni_net
 
@@ -153,13 +228,14 @@ services:
       dockerfile: Dockerfile
     container_name: app2-comercial
     restart: unless-stopped
+    logging: *logging
+    deploy:
+      resources: *resources-medium
     environment:
       FLASK_ENV: production
       SECRET_KEY: ${APP2_SECRET_KEY:-change-me}
       SSO_ENABLED: "true"
-      JWT_SECRET_KEY: ${JWT_SECRET_KEY}
-      JWT_ALGORITHM: HS256
-      COOKIE_ACCESS_TOKEN_NAME: sso_access_token
+      <<: *jwt-common
       MAIN_APP_URL: /
       APP_PATH_PREFIX: /app2
       DB_HOST: ${MYSQL_HOST}
@@ -173,8 +249,11 @@ services:
       - "traefik.http.routers.app2.rule=PathPrefix(`/app2`)"
       - "traefik.http.routers.app2.entrypoints=web"
       - "traefik.http.middlewares.app2-strip.stripprefix.prefixes=/app2"
-      - "traefik.http.routers.app2.middlewares=app2-strip"
+      - "traefik.http.routers.app2.middlewares=app2-strip,compress@file"
       - "traefik.http.services.app2.loadbalancer.server.port=8000"
+    depends_on:
+      traefik:
+        condition: service_started
     networks:
       - omni_net
 
@@ -191,11 +270,13 @@ services:
         VITE_API_BASE_URL: /app3
     container_name: app3-costos
     restart: unless-stopped
+    logging: *logging
+    deploy:
+      resources: *resources-medium
     environment:
       PORT: 3001
       SSO_ENABLED: "true"
-      JWT_SECRET_KEY: ${JWT_SECRET_KEY}
-      JWT_ALGORITHM: HS256
+      <<: *jwt-common
       COOKIE_ACCESS_TOKEN_NAME: sso_access_token
       MAIN_APP_URL: /
       APP_PATH_PREFIX: /app3
@@ -221,11 +302,17 @@ services:
       - "traefik.http.routers.app3.rule=PathPrefix(`/app3`)"
       - "traefik.http.routers.app3.entrypoints=web"
       - "traefik.http.middlewares.app3-strip.stripprefix.prefixes=/app3"
-      - "traefik.http.routers.app3.middlewares=app3-strip"
+      - "traefik.http.routers.app3.middlewares=app3-strip,compress@file"
       - "traefik.http.services.app3.loadbalancer.server.port=3001"
+    depends_on:
+      traefik:
+        condition: service_started
     networks:
       - omni_net
 
 networks:
   omni_net:
     driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16
