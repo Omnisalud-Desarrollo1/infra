@@ -2,3 +2,7 @@ acme.json
 certs/
 
 .env
+package.json
+package-lock.json
+node_modules/
+generate.jcs
