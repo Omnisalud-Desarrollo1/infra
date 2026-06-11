@@ -1,0 +1,500 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<title>Manual de Usuario — Infraestructura Omnisalud Digital</title>
+<style>
+  @page {
+    size: A4;
+    margin: 22mm 18mm 22mm 18mm;
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: "Segoe UI", Arial, sans-serif;
+    color: #1f2937;
+    font-size: 11pt;
+    line-height: 1.55;
+  }
+  h1, h2, h3, h4 { color: #0A4483; font-family: "Segoe UI", Arial, sans-serif; }
+  h1 { font-size: 24pt; margin-bottom: 4px; }
+  h2 {
+    font-size: 16pt;
+    border-bottom: 2px solid #0A4483;
+    padding-bottom: 4px;
+    margin-top: 28px;
+    page-break-before: always;
+  }
+  h2.no-break { page-break-before: auto; }
+  h3 { font-size: 13pt; color: #1869AC; margin-top: 18px; }
+  h4 { font-size: 11.5pt; color: #374151; margin-top: 14px; }
+  p, li { font-size: 10.5pt; }
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    margin: 10px 0 16px 0;
+    font-size: 9.5pt;
+  }
+  th, td {
+    border: 1px solid #DEE5EA;
+    padding: 6px 8px;
+    text-align: left;
+    vertical-align: top;
+  }
+  th { background: #0A4483; color: #fff; font-weight: 700; }
+  tr:nth-child(even) td { background: #F6F7FA; }
+  ol, ul { margin: 6px 0 14px 0; padding-left: 24px; }
+  li { margin-bottom: 4px; }
+  code {
+    background: #F1F5F9;
+    border-radius: 4px;
+    padding: 1px 5px;
+    font-family: Consolas, monospace;
+    font-size: 9.5pt;
+    color: #0A4483;
+  }
+  pre {
+    background: #1e293b;
+    color: #e2e8f0;
+    border-radius: 6px;
+    padding: 10px 14px;
+    font-family: Consolas, monospace;
+    font-size: 9pt;
+    overflow-x: auto;
+    line-height: 1.5;
+  }
+  .note {
+    border-radius: 8px;
+    padding: 10px 14px;
+    margin: 10px 0;
+    font-size: 10pt;
+    border-left: 5px solid;
+  }
+  .warning { background: #FEF2F2; border-color: #DC2626; }
+  .tip     { background: #ECFDF5; border-color: #059669; }
+  .info    { background: #EFF6FF; border-color: #1869AC; }
+  .toc { page-break-after: always; }
+  .toc ol { font-size: 11pt; line-height: 2; }
+  .toc ol ol { font-size: 10pt; line-height: 1.8; }
+  .exec-summary {
+    background: #F6F7FA;
+    border-left: 5px solid #0A4483;
+    border-radius: 8px;
+    padding: 14px 18px;
+    margin-bottom: 20px;
+    font-size: 10.5pt;
+  }
+</style>
+</head>
+<body>
+
+<!-- ===================== INDICE ===================== -->
+<section class="toc">
+<h2 class="no-break">Índice</h2>
+<ol>
+  <li>Introducción</li>
+  <li>Requisitos del entorno</li>
+  <li>Estructura del proyecto</li>
+  <li>Configuración inicial
+    <ol>
+      <li>Archivo .env</li>
+      <li>Variables principales</li>
+      <li>SSL y Let's Encrypt</li>
+    </ol>
+  </li>
+  <li>Comandos de operación
+    <ol>
+      <li>Desplegar el ecosistema completo</li>
+      <li>Detener los servicios</li>
+      <li>Reconstruir una aplicación</li>
+      <li>Ver logs</li>
+      <li>Estado de los contenedores</li>
+    </ol>
+  </li>
+  <li>Monitoreo y health checks</li>
+  <li>Ngrok — túnel para testing remoto</li>
+  <li>Backup y restauración</li>
+  <li>Resolución de problemas</li>
+  <li>Referencia rápida</li>
+</ol>
+</section>
+
+<!-- ===================== RESUMEN EJECUTIVO ===================== -->
+<h2 class="no-break">Resumen ejecutivo</h2>
+<div class="exec-summary">
+Este manual explica cómo operar el proyecto <strong>infra</strong>, la capa de orquestación
+del ecosistema <strong>Omnisalud Digital</strong>. <code>infra</code> centraliza el despliegue
+de cuatro aplicaciones web (Portal Corporativo, Módulo Asistencial, Módulo Comercial y Control
+de Costos) mediante <strong>Docker Compose</strong> y un proxy reverso <strong>Traefik</strong>.
+Está dirigido a administradores de sistemas y personal de DevOps responsable de desplegar,
+monitorear y mantener la plataforma en servidores Linux. Todo el ecosistema se levanta con un
+solo comando desde el directorio <code>infra/</code>.
+</div>
+
+<!-- ===================== 1. INTRODUCCION ===================== -->
+<h2>1. Introducción</h2>
+
+<h3>1.1 ¿Qué es infra?</h3>
+<p><strong>infra</strong> es el proyecto de orquestación que unifica el despliegue de todo el
+ecosistema Omnisalud Digital. Contiene el archivo <code>docker-compose.yml</code> que define y
+conecta los seis servicios del sistema, la configuración del proxy reverso Traefik, y las
+variables de entorno compartidas entre todas las aplicaciones.</p>
+
+<h3>1.2 Aplicaciones orquestadas</h3>
+<table>
+  <tr><th>Servicio</th><th>Contenedor</th><th>Ruta</th><th>Tecnología</th><th>Propósito</th></tr>
+  <tr><td><strong>traefik</strong></td><td>traefik</td><td>:80, :443</td><td>Traefik v3</td><td>Proxy reverso, ruteo por ruta, HTTPS</td></tr>
+  <tr><td><strong>portal-auth</strong></td><td>portal-auth</td><td>/api/v1/*</td><td>FastAPI</td><td>Autenticación SSO, gestión de usuarios</td></tr>
+  <tr><td><strong>portal-frontend</strong></td><td>portal-frontend</td><td>/*</td><td>React + Nginx</td><td>Portal web, panel de aplicaciones</td></tr>
+  <tr><td><strong>app1-asistencial</strong></td><td>app1-asistencial</td><td>/app1/*</td><td>Flask 3.1</td><td>Gestión de horarios asistenciales</td></tr>
+  <tr><td><strong>app2-comercial</strong></td><td>app2-comercial</td><td>/app2/*</td><td>Flask + Gunicorn</td><td>Operaciones comerciales, cotizador</td></tr>
+  <tr><td><strong>app3-costos</strong></td><td>app3-costos</td><td>/app3/*</td><td>Express + React</td><td>Control de costos y negociaciones</td></tr>
+</table>
+
+<h3>1.3 ¿Qué problemas resuelve?</h3>
+<ul>
+  <li>Unifica el despliegue de cuatro aplicaciones independientes en un solo comando.</li>
+  <li>Centraliza la configuración de red, dominios, HTTPS y variables de entorno.</li>
+  <li>Provee ruteo automático por ruta (<code>/app1</code>, <code>/app2</code>, <code>/app3</code>) sin exponer puertos individuales.</li>
+  <li>Facilita la renovación automática de certificados SSL vía Let's Encrypt.</li>
+  <li>Permite reconstruir una sola aplicación sin afectar a las demás.</li>
+</ul>
+
+<!-- ===================== 2. REQUISITOS ===================== -->
+<h2>2. Requisitos del entorno</h2>
+
+<h3>Software</h3>
+<table>
+  <tr><th>Herramienta</th><th>Versión mínima</th><th>Verificación</th></tr>
+  <tr><td>Docker</td><td>29.x+</td><td><code>docker --version</code></td></tr>
+  <tr><td>Docker Compose</td><td>5.x+ (plugin)</td><td><code>docker compose version</code></td></tr>
+  <tr><td>Git</td><td>2.x+</td><td><code>git --version</code></td></tr>
+</table>
+
+<h3>Servidor</h3>
+<table>
+  <tr><th>Recurso</th><th>Mínimo</th><th>Recomendado</th></tr>
+  <tr><td>CPU</td><td>2 vCPUs</td><td>4 vCPUs</td></tr>
+  <tr><td>RAM</td><td>4 GB</td><td>8 GB</td></tr>
+  <tr><td>Disco</td><td>20 GB</td><td>50 GB SSD</td></tr>
+  <tr><td>Sistema operativo</td><td>Ubuntu 22.04+</td><td>Ubuntu 24.04 LTS</td></tr>
+</table>
+
+<h3>Bases de datos</h3>
+<p>Se requiere acceso a un servidor MySQL con las siguientes bases de datos:</p>
+<table>
+  <tr><th>Base de datos</th><th>Usada por</th></tr>
+  <tr><td><code>omn_core_global</code></td><td>portal-auth, app1, app3</td></tr>
+  <tr><td><code>omn_asis_gestion_turnos</code></td><td>app1-asistencial</td></tr>
+  <tr><td><code>comercialDB</code></td><td>app2-comercial</td></tr>
+  <tr><td><code>omn_ng_control_costos_rn</code></td><td>app3-costos</td></tr>
+</table>
+
+<!-- ===================== 3. ESTRUCTURA ===================== -->
+<h2>3. Estructura del proyecto</h2>
+
+<h3>3.1 Directorios requeridos</h3>
+<p>Los repositorios de las aplicaciones deben residir como hermanos del directorio <code>infra/</code>:</p>
+<pre>/home/sa/
+├── infra/                          ← aquí se ejecuta docker compose
+│   ├── docker-compose.yml
+│   ├── .env
+│   ├── .env.example
+│   ├── generate.jcs
+│   ├── traefik/
+│   │   ├── dynamic.yml
+│   │   ├── traefik.yml
+│   │   └── letsencrypt/
+│   ├── MANUAL_TECNICO.md
+│   ├── MANUAL_USUARIO.html
+│   └── DESPLIEGUE.md
+├── Portal-Corporativo-Omnisalud/
+├── Desarrollo_Asistencial_Version_1.0/
+├── Desarrollo_Comercial/
+└── Negociaciones_control_costo_v1/</pre>
+
+<h3>3.2 Archivos clave</h3>
+<table>
+  <tr><th>Archivo</th><th>Propósito</th></tr>
+  <tr><td><code>docker-compose.yml</code></td><td>Definición de los 6 servicios, redes, volúmenes y health checks</td></tr>
+  <tr><td><code>.env</code></td><td>Credenciales y variables de entorno (JWT, MySQL, dominio)</td></tr>
+  <tr><td><code>.env.example</code></td><td>Plantilla sin secretos para referencia</td></tr>
+  <tr><td><code>traefik/dynamic.yml</code></td><td>Middlewares de Traefik: compresión, rate limiting, caché</td></tr>
+  <tr><td><code>traefik/traefik.yml</code></td><td>Configuración estática de referencia (entrypoints, Let's Encrypt)</td></tr>
+  <tr><td><code>generate.jcs</code></td><td>Script Node.js para generar el PDF de este manual con Playwright</td></tr>
+</table>
+
+<!-- ===================== 4. CONFIGURACION ===================== -->
+<h2>4. Configuración inicial</h2>
+
+<h3>4.1 Archivo .env</h3>
+<ol>
+  <li>Copie la plantilla: <code>cp .env.example .env</code></li>
+  <li>Edite <code>.env</code> con las credenciales reales de su entorno.</li>
+  <li><strong>Nunca</strong> incluya <code>.env</code> en el control de versiones.</li>
+</ol>
+
+<h3>4.2 Variables principales</h3>
+<table>
+  <tr><th>Variable</th><th>Descripción</th><th>Ejemplo</th></tr>
+  <tr><td><code>JWT_SECRET_KEY</code></td><td>Clave secreta para firmar tokens JWT (debe ser idéntica en todas las apps)</td><td><em>clave aleatoria 256 bits</em></td></tr>
+  <tr><td><code>JWT_ALGORITHM</code></td><td>Algoritmo de firma JWT</td><td><code>HS256</code></td></tr>
+  <tr><td><code>MYSQL_HOST</code></td><td>Dirección del servidor MySQL</td><td><code>192.168.2.187</code></td></tr>
+  <tr><td><code>MYSQL_PORT</code></td><td>Puerto del servidor MySQL</td><td><code>3306</code></td></tr>
+  <tr><td><code>MYSQL_USER</code></td><td>Usuario de MySQL</td><td><code>root</code></td></tr>
+  <tr><td><code>MYSQL_PASSWORD</code></td><td>Contraseña de MySQL</td><td><em>contraseña segura</em></td></tr>
+  <tr><td><code>COOKIE_DOMAIN</code></td><td>Dominio de la cookie SSO (vacío = mismo dominio)</td><td><em>vacío</em></td></tr>
+  <tr><td><code>COOKIE_SECURE</code></td><td>Cookie solo sobre HTTPS</td><td><code>true</code> (prod) / <code>false</code> (dev)</td></tr>
+  <tr><td><code>CORS_ORIGINS</code></td><td>Orígenes permitidos para CORS</td><td><code>https://portalcorporativo.omnisalud.co</code></td></tr>
+  <tr><td><code>APP1_SECRET_KEY</code></td><td>Clave secreta de Flask para app1</td><td><em>valor aleatorio</em></td></tr>
+  <tr><td><code>APP2_SECRET_KEY</code></td><td>Clave secreta de Flask para app2</td><td><em>valor aleatorio</em></td></tr>
+  <tr><td><code>APP3_SECRET_KEY</code></td><td>Clave secreta de Express para app3</td><td><em>valor aleatorio</em></td></tr>
+</table>
+
+<h3>4.3 SSL y Let's Encrypt</h3>
+<p>Traefik gestiona automáticamente los certificados SSL. La configuración relevante en <code>.env</code>:</p>
+<table>
+  <tr><th>Variable</th><th>Desarrollo</th><th>Producción</th></tr>
+  <tr><td><code>LETSENCRYPT_EMAIL</code></td><td><code>admin@omnisalud.co</code></td><td><code>admin@omnisalud.co</code></td></tr>
+  <tr><td><code>LETSENCRYPT_CA</code></td><td><code>https://acme-staging-v02...directory</code></td><td><em>vacío o comentado</em></td></tr>
+  <tr><td><code>COOKIE_SECURE</code></td><td><code>false</code></td><td><code>true</code></td></tr>
+</table>
+
+<div class="note warning">⚠️ En producción, elimine o comente <code>LETSENCRYPT_CA</code> para usar la CA real de Let's Encrypt. El valor staging solo emite certificados de prueba (no válidos en navegadores).</div>
+
+<div class="note tip">💡 Para desarrollo local sin HTTPS, no se requiere configuración de Let's Encrypt. Use <code>http://localhost</code> directamente.</div>
+
+<!-- ===================== 5. COMANDOS DE OPERACION ===================== -->
+<h2>5. Comandos de operación</h2>
+
+<h3>5.1 Desplegar el ecosistema completo</h3>
+<pre>cd /home/sa/infra
+docker compose up -d --build</pre>
+<p>La primera ejecución descarga imágenes base, instala dependencias y compila los frontends
+React. Tiempo estimado: 3–5 minutos. Ejecuciones posteriores son más rápidas porque Docker
+aprovecha la caché de capas.</p>
+
+<div class="note info">ℹ️ El flag <code>-d</code> ejecuta los contenedores en segundo plano.
+El flag <code>--build</code> fuerza la reconstrucción de las imágenes. Si solo quiere levantar
+contenedores ya construidos, omita <code>--build</code>.</div>
+
+<h3>5.2 Detener los servicios</h3>
+<pre>docker compose down</pre>
+<p>Detiene y elimina todos los contenedores, pero conserva los volúmenes (certificados SSL,
+datos persistentes). Para eliminar también los volúmenes:</p>
+<pre>docker compose down -v</pre>
+
+<h3>5.3 Reconstruir una aplicación específica</h3>
+<p>Cuando solo necesita actualizar una app sin afectar a las demás:</p>
+<pre># Reconstruir solo app3 (Control de Costos)
+docker compose up -d --build app3-costos
+
+# Reconstruir el portal completo
+docker compose up -d --build portal-auth portal-frontend
+
+# Reconstruir app1
+docker compose up -d --build app1-asistencial
+
+# Reconstruir app2
+docker compose up -d --build app2-comercial</pre>
+
+<h3>5.4 Ver logs</h3>
+<pre># Logs de todos los servicios (streaming)
+docker compose logs -f
+
+# Logs de un servicio específico
+docker compose logs -f app3-costos
+
+# Últimas 50 líneas de Traefik
+docker compose logs --tail 50 traefik</pre>
+
+<h3>5.5 Estado de los contenedores</h3>
+<pre>docker compose ps</pre>
+<p>Muestra el estado de cada contenedor: <strong>Up</strong> (activo), <strong>healthy</strong>
+(saludable), <strong>unhealthy</strong> (con problemas) o <strong>exited</strong> (detenido).</p>
+
+<!-- ===================== 6. MONITOREO ===================== -->
+<h2>6. Monitoreo y health checks</h2>
+
+<h3>6.1 Dashboard de Traefik</h3>
+<p>Traefik expone un panel de monitoreo en el puerto 8080 (solo accesible desde localhost):</p>
+<pre>http://localhost:8080</pre>
+<p>El dashboard muestra las rutas activas, servicios, middlewares y el estado de los certificados SSL.</p>
+
+<h3>6.2 Endpoints de salud</h3>
+<table>
+  <tr><th>Servicio</th><th>Endpoint</th><th>Respuesta esperada</th></tr>
+  <tr><td>portal-auth</td><td><code>GET /api/v1/health</code></td><td><code>{"status":"healthy"}</code></td></tr>
+  <tr><td>app2-comercial</td><td><code>GET /app2/health</code></td><td><code>{"status":"healthy"}</code></td></tr>
+</table>
+
+<pre># Verificar salud desde el host
+curl -f http://localhost:80/api/v1/health
+curl -f http://localhost:80/app2/health</pre>
+
+<h3>6.3 Verificación post-despliegue</h3>
+<p>Ejecute estas comprobaciones después de cada despliegue:</p>
+<pre># 1. Todos los contenedores en ejecución
+docker compose ps
+
+# 2. Endpoints responden
+curl -f http://localhost:80/api/v1/health || echo "FAIL: auth"
+curl -f -o /dev/null http://localhost:80/ || echo "FAIL: frontend"
+
+# 3. Sin errores en logs recientes
+docker compose logs --tail 30 | grep -i "error\|fail"</pre>
+
+<!-- ===================== 7. NGROK ===================== -->
+<h2>7. Ngrok — túnel para testing remoto</h2>
+<p>Ngrok permite exponer el ecosistema completo a internet sin configurar DNS, útil para
+pruebas con usuarios externos o demostraciones.</p>
+
+<h3>Opción A: Ngrok CLI (recomendado)</h3>
+<pre># 1. Asegurar que el stack está corriendo
+docker compose up -d
+
+# 2. Iniciar ngrok
+ngrok http http://localhost:80
+
+# 3. Usar la URL pública que muestra ngrok
+#    Forwarding  https://xxxx-xx-xxx.ngrok-free.app -> http://localhost:80</pre>
+
+<h3>Opción B: Ngrok en Docker</h3>
+<pre># 1. Configurar token en .env
+#    NGROK_AUTHTOKEN=tu-token-aqui
+
+# 2. Iniciar con perfil ngrok
+docker compose --profile ngrok up -d
+
+# 3. Obtener la URL pública
+curl -s http://localhost:4040/api/tunnels | \
+  python3 -c "import sys,json; print(json.load(sys.stdin)['tunnels'][0]['public_url'])"</pre>
+
+<!-- ===================== 8. BACKUP ===================== -->
+<h2>8. Backup y restauración</h2>
+
+<h3>8.1 Bases de datos</h3>
+<pre># Backup
+mysqldump -h &lt;host&gt; -u &lt;user&gt; -p omn_core_global &gt; backup_global_$(date +%Y%m%d).sql
+mysqldump -h &lt;host&gt; -u &lt;user&gt; -p omn_asis_gestion_turnos &gt; backup_asis_$(date +%Y%m%d).sql
+mysqldump -h &lt;host&gt; -u &lt;user&gt; -p comercialDB &gt; backup_comercial_$(date +%Y%m%d).sql
+mysqldump -h &lt;host&gt; -u &lt;user&gt; -p omn_ng_control_costos_rn &gt; backup_costos_$(date +%Y%m%d).sql
+
+# Restauración
+mysql -h &lt;host&gt; -u &lt;user&gt; -p omn_core_global &lt; backup_global_20260101.sql</pre>
+
+<h3>8.2 Archivos de configuración (backup mínimo)</h3>
+<pre># Respaldar configuración esencial
+tar -czf infra_backup_$(date +%Y%m%d).tar.gz \
+  /home/sa/infra/.env \
+  /home/sa/infra/docker-compose.yml \
+  /home/sa/infra/traefik/</pre>
+
+<h3>8.3 Certificados Let's Encrypt</h3>
+<pre>tar -czf letsencrypt_backup.tar.gz /home/sa/infra/traefik/letsencrypt/</pre>
+
+<!-- ===================== 9. TROUBLESHOOTING ===================== -->
+<h2>9. Resolución de problemas</h2>
+
+<table>
+  <tr><th>Problema</th><th>Causa probable</th><th>Solución</th></tr>
+  <tr>
+    <td>404 en todas las rutas</td>
+    <td>Traefik no detecta los contenedores</td>
+    <td><code>docker compose up -d --force-recreate</code></td>
+  </tr>
+  <tr>
+    <td>Error de conexión a MySQL</td>
+    <td>Host inalcanzable o credenciales incorrectas</td>
+    <td>Verificar <code>MYSQL_HOST</code> en <code>.env</code>; probar conectividad con <code>mysql -h &lt;host&gt; -u &lt;user&gt; -p</code></td>
+  </tr>
+  <tr>
+    <td>Token JWT inválido entre apps</td>
+    <td><code>JWT_SECRET_KEY</code> no coincide</td>
+    <td>Verificar que <code>.env</code> tenga el mismo <code>JWT_SECRET_KEY</code> para todos los servicios</td>
+  </tr>
+  <tr>
+    <td>Cookie SSO no se envía</td>
+    <td><code>COOKIE_DOMAIN</code> mal configurado</td>
+    <td>Dejar <code>COOKIE_DOMAIN</code> vacío para mismo dominio; solo configurar para subdominios</td>
+  </tr>
+  <tr>
+    <td>Contenedor en estado unhealthy</td>
+    <td>Health check fallando</td>
+    <td>Revisar logs: <code>docker logs &lt;contenedor&gt; --tail 50</code></td>
+  </tr>
+  <tr>
+    <td>Certificado SSL no se genera</td>
+    <td>LetsEncrypt CA de staging o dominio sin DNS</td>
+    <td>Verificar <code>LETSENCRYPT_CA</code> (vacío para prod); confirmar que el DNS resuelve al servidor</td>
+  </tr>
+  <tr>
+    <td>Puerto 80/443 ya en uso</td>
+    <td>Otro proceso escuchando en esos puertos</td>
+    <td>Detener el servicio冲突: <code>sudo systemctl stop nginx/apache2</code>; verificar con <code>sudo lsof -i :80</code></td>
+  </tr>
+  <tr>
+    <td>Error de permisos en docker.sock</td>
+    <td>Usuario sin acceso al socket de Docker</td>
+    <td><code>sudo usermod -aG docker $USER && newgrp docker</code></td>
+  </tr>
+</table>
+
+<div class="note tip">💡 Para diagnóstico profundo, inspeccione un contenedor en ejecución:
+<code>docker exec -it app3-costos sh</code> y revise logs internos o conectividad.</div>
+
+<!-- ===================== 10. REFERENCIA RAPIDA ===================== -->
+<h2>10. Referencia rápida</h2>
+
+<h3>Comandos esenciales</h3>
+<pre># Desplegar todo
+cd /home/sa/infra && docker compose up -d --build
+
+# Detener todo
+docker compose down
+
+# Reconstruir una app
+docker compose up -d --build app3-costos
+
+# Ver estado
+docker compose ps
+
+# Ver logs
+docker compose logs -f [servicio]
+
+# Con ngrok
+docker compose --profile ngrok up -d</pre>
+
+<h3>Rutas de acceso</h3>
+<table>
+  <tr><th>Recurso</th><th>URL</th></tr>
+  <tr><td>Portal Corporativo</td><td><code>http://localhost:80</code></td></tr>
+  <tr><td>API de autenticación</td><td><code>/api/v1/*</code></td></tr>
+  <tr><td>Módulo Asistencial</td><td><code>/app1/*</code></td></tr>
+  <tr><td>Módulo Comercial</td><td><code>/app2/*</code></td></tr>
+  <tr><td>Control de Costos</td><td><code>/app3/*</code></td></tr>
+  <tr><td>Dashboard Traefik</td><td><code>http://localhost:8080</code></td></tr>
+</table>
+
+<h3>Red interna</h3>
+<p>Todos los contenedores comparten la red bridge <code>omni_net</code> (subred <code>172.28.0.0/16</code>).
+Solo Traefik expone los puertos 80 y 443 al host. La comunicación entre servicios se realiza por
+nombre de contenedor (ej. <code>portal-auth:8000</code>).</p>
+
+<h3>Recursos asignados por contenedor</h3>
+<table>
+  <tr><th>Servicio</th><th>CPU límite</th><th>RAM límite</th></tr>
+  <tr><td>traefik</td><td>0.5</td><td>256 MB</td></tr>
+  <tr><td>portal-frontend</td><td>0.5</td><td>256 MB</td></tr>
+  <tr><td>portal-auth</td><td>1.0</td><td>512 MB</td></tr>
+  <tr><td>app1-asistencial</td><td>1.0</td><td>512 MB</td></tr>
+  <tr><td>app2-comercial</td><td>1.0</td><td>512 MB</td></tr>
+  <tr><td>app3-costos</td><td>1.0</td><td>512 MB</td></tr>
+</table>
+
+<h3>Logs y rotación</h3>
+<p>Todos los servicios usan rotación de logs automática: máximo 3 archivos de 10 MB cada uno
+(<code>json-file</code> driver). Los logs de acceso de Traefik se emiten en formato JSON a
+<code>stdout</code> para facilitar su ingestión en sistemas de monitoreo.</p>
+
+</body>
+</html>
